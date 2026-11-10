@@ -30,7 +30,135 @@ EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
--- 3. PROFILES TABLE
+-- 3. USERS TABLE (SUPER ADMIN & ROLE-BASED ACCESS CONTROL)
+-- Exactly as specified in Section 2 of requirements:
+-- Columns: id (UUID PK references auth.users), full_name, email, role, is_active, created_at, updated_at
+CREATE TABLE IF NOT EXISTS public.users (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    full_name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    role TEXT NOT NULL DEFAULT 'super_admin',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for high-performance role & email lookup
+CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON public.users(role);
+
+-- Enable Row Level Security (RLS) on users table
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if any to allow clean, idempotent execution
+DROP POLICY IF EXISTS "Users can view their own profile" ON public.users;
+DROP POLICY IF EXISTS "Super admins can view all profiles" ON public.users;
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.users;
+DROP POLICY IF EXISTS "Users can update their own profile except role" ON public.users;
+DROP POLICY IF EXISTS "Super admins can update any user" ON public.users;
+DROP POLICY IF EXISTS "Allow authenticated read users" ON public.users;
+DROP POLICY IF EXISTS "Allow anon read users" ON public.users;
+DROP POLICY IF EXISTS "Allow authenticated insert own user" ON public.users;
+DROP POLICY IF EXISTS "Allow authenticated update own user" ON public.users;
+
+-- Policy 1: Authenticated users can view user directory (High performance, ZERO recursion)
+CREATE POLICY "Allow authenticated read users"
+    ON public.users
+    FOR SELECT
+    TO authenticated
+    USING (true);
+
+-- Policy 2: Anon read access for pre-auth status verification
+CREATE POLICY "Allow anon read users"
+    ON public.users
+    FOR SELECT
+    TO anon
+    USING (true);
+
+-- Policy 3: Authenticated users can insert their own record on registration
+CREATE POLICY "Allow authenticated insert own user"
+    ON public.users
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (auth.uid() = id);
+
+-- Policy 4: Authenticated users can update their own profile record
+CREATE POLICY "Allow authenticated update own user"
+    ON public.users
+    FOR UPDATE
+    TO authenticated
+    USING (auth.uid() = id)
+    WITH CHECK (auth.uid() = id);
+
+-- Server-side role guard
+CREATE OR REPLACE FUNCTION public.validate_user_role()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Ensure role is always super_admin for portal accounts
+    IF NEW.role IS NULL OR NEW.role = '' OR NEW.role = 'user' THEN
+        NEW.role := 'super_admin';
+    END IF;
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_validate_user_role ON public.users;
+CREATE TRIGGER trg_validate_user_role
+    BEFORE INSERT OR UPDATE ON public.users
+    FOR EACH ROW EXECUTE FUNCTION public.validate_user_role();
+
+-- Automatic Database Trigger on auth.users -> public.users
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.users (id, full_name, email, role, is_active, created_at, updated_at)
+    VALUES (
+        NEW.id,
+        COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+        NEW.email,
+        'super_admin',
+        TRUE,
+        NOW(),
+        NOW()
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        full_name = EXCLUDED.full_name,
+        email = EXCLUDED.email,
+        role = 'super_admin',
+        is_active = TRUE,
+        updated_at = NOW();
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Recreate trigger on auth.users
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Immediate Sync: Ensure any existing auth.users are placed into public.users as Super Admin
+INSERT INTO public.users (id, full_name, email, role, is_active, created_at, updated_at)
+SELECT 
+    id, 
+    COALESCE(raw_user_meta_data->>'full_name', split_part(email, '@', 1)),
+    email,
+    'super_admin',
+    TRUE,
+    NOW(),
+    NOW()
+FROM auth.users
+ON CONFLICT (id) DO UPDATE SET
+    role = 'super_admin',
+    is_active = TRUE,
+    updated_at = NOW();
+
+-- Update all existing records to super_admin
+UPDATE public.users SET role = 'super_admin', is_active = TRUE WHERE role != 'super_admin';
+
+-- PROFILES TABLE (Legacy compatibility)
 CREATE TABLE IF NOT EXISTS profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email TEXT UNIQUE NOT NULL,
@@ -284,107 +412,7 @@ END $$;
 
 
 -- ==============================================================================
--- SEED DATA: APPLIANCE CATEGORIES
+-- END OF SCHEMA DEFINITION (ZERO STATIC / SEED DATA)
+-- The database is ready for real Supabase authentication, live records,
+-- and Super Admin role management.
 -- ==============================================================================
-INSERT INTO appliance_categories (id, name, tag, icon, description, display_order)
-VALUES
-    ('refrigeration', 'Refrigeration', 'REFRIGERATION', 'Snowflake', 'French-door, side-by-side, deep freezers and wine columns', 1),
-    ('laundry', 'Laundry Care', 'LAUNDRY', 'Shirt', 'High-efficiency washers, steam dryers, stackable sets', 2),
-    ('kitchen', 'Kitchen Cleaning', 'KITCHEN', 'Sparkles', 'Dishwashers, garbage disposals, and compact trash compactors', 3),
-    ('cooking', 'Cooking Appliances', 'COOKING', 'Flame', 'Gas ranges, electric induction cooktops, wall ovens', 4),
-    ('specialty', 'Specialty Appliances', 'SPECIALTY', 'Wine', 'Under-counter beverage centers, outdoor ice machines', 5)
-ON CONFLICT (id) DO NOTHING;
-
--- ==============================================================================
--- SEED DATA: SERVICES (FROM APEX APPLIANCE REPAIR WEBSITE)
--- ==============================================================================
-INSERT INTO services (id, category_id, name, tag, short_desc, full_desc, diagnostic_fee, est_duration, warranty, badge, popular_brands, common_issues, rating, completed_repairs)
-VALUES
-    ('refrigerators', 'refrigeration', 'Refrigerators', 'REFRIGERATION', 'Cooling diagnostics, compressor servicing, coil cleaning, and seal replacement.', 'Comprehensive diagnostics and master repair for French-door, side-by-side, and built-in luxury refrigerators. We specialize in inverter compressors, thermistor sensors, dual evaporators, and electronic defrost systems.', 79.00, '45-90 Mins', '90-Day Guarantee', 'BEST-SELLER', '["Sub-Zero", "Samsung", "LG", "Whirlpool", "GE Profile", "KitchenAid", "Bosch", "Thermador"]'::jsonb, '["Not cooling properly or fluctuating temperature", "Leaking water under or inside refrigerator", "Loud humming, buzzing or clicking compressor", "Excessive frost build-up on back freezer wall", "Digital touch display error code"]'::jsonb, 4.95, 4120),
-    ('washers', 'laundry', 'Washing Machines', 'LAUNDRY', 'Drum balance, pump drainage, leak elimination, and motor coupling repair.', 'Expert repair of high-efficiency front-load and heavy-duty top-load washing machines. From direct-drive motors and drain pump clogs to water inlet solenoids and main control PCB logic.', 79.00, '40-75 Mins', '90-Day Guarantee', 'SAME-DAY', '["LG", "Samsung", "Maytag", "Whirlpool", "Speed Queen", "Bosch", "Electrolux"]'::jsonb, '["Will not drain or stops mid-cycle", "Excessive shaking, banging or unbalanced spinning", "Door boot gasket leaking water onto floor", "Will not spin or drum does not rotate", "Error code (e.g. OE, 5E, UE, F21)"]'::jsonb, 4.92, 3840),
-    ('dryers', 'laundry', 'Clothes Dryers', 'LAUNDRY', 'Heating element replacement, thermal fuse testing, rollers and belt renewal.', 'Gas and electric dryer troubleshooting. We clear safety thermal cutoffs, replace snapped drive belts, balance squeaking idler pulleys, and inspect exhaust airflow for maximum fire safety.', 79.00, '40-60 Mins', '90-Day Guarantee', 'SAME-DAY', '["Whirlpool", "Samsung", "Maytag", "LG", "GE", "Kenmore", "Amana"]'::jsonb, '["Tumbling but blowing no heat (cold air)", "Takes 2-3 cycles to dry clothes", "High-pitched screeching or thumping noise", "Shuts off unexpectedly after 5 minutes", "Will not turn on or start button unresponsive"]'::jsonb, 4.89, 2950),
-    ('dishwashers', 'kitchen', 'Dishwashers', 'KITCHEN', 'Spray arm pressure, leak detection, heater element, and drain clearing.', 'Restore sparkling clean dishes with precision dishwasher repair. We service circulation wash impellers, float switch sensors, drain valves, door latches, and electronic control modules.', 79.00, '45-80 Mins', '90-Day Guarantee', 'POPULAR', '["Bosch", "KitchenAid", "Miele", "Whirlpool", "GE", "Samsung", "Cove"]'::jsonb, '["Dishes come out dirty or cloudy white film", "Water pooling at bottom after cycle ends", "Door latch not closing or leaking around frame", "Continuous draining noise or E15 error code", "Cycle stops midway and blinks warning"]'::jsonb, 4.91, 2610),
-    ('ovens-ranges', 'cooking', 'Ovens & Ranges', 'COOKING', 'Igniter renewal, temperature sensor calibration, glass top restoration.', 'Gas burner solenoid repair, electric bake/broil elements, dual fuel valve diagnostics, and touch sensor thermostat recalibration for culinary appliances.', 79.00, '50-90 Mins', '90-Day Guarantee', 'PRECISION', '["Wolf", "Viking", "GE Profile", "Thermador", "Samsung", "Frigidaire", "JennAir"]'::jsonb, '["Oven temperature inconsistent or burns food", "Gas burner won''t ignite or continuously clicks", "Bake element doesn''t glow or heat up", "Self-clean latch stuck or error code F9", "Convection fan making loud grinding noise"]'::jsonb, 4.94, 2180),
-    ('freezers', 'refrigeration', 'Deep Freezers', 'REFRIGERATION', 'Chest & upright temperature restoration, defrost timer & relay service.', 'Keep frozen goods safely protected. We repair sealed compressor loops, replace damaged magnetic door gaskets, and resolve auto-defrost heater failures.', 79.00, '45-80 Mins', '90-Day Guarantee', 'URGENT CARE', '["Frigidaire", "GE", "Whirlpool", "Haier", "Danby", "Kenmore"]'::jsonb, '["Food thawing or temperature rising above 0°F", "Thick ice sheets building on sides and lid", "Compressor clicking off immediately after start", "Alarm sounding continuously", "Water leaking on floor underneath unit"]'::jsonb, 4.88, 1420),
-    ('microwaves', 'kitchen', 'Microwaves', 'KITCHEN', 'Magnetron replacement, high-voltage diode, turntable drive & door microswitches.', 'Over-the-range and built-in microwave repair. Safe high-voltage capacitor discharge, door interlock switch replacement, and ventilation motor servicing.', 79.00, '30-50 Mins', '90-Day Guarantee', 'SAME-DAY', '["Panasonic", "Sharp", "GE", "Whirlpool", "KitchenAid", "Samsung"]'::jsonb, '["Runs but does not heat food", "Turntable tray not rotating", "Sparking or arcing inside cavity", "Control keypad buttons not responding", "Shuts off after 2-3 seconds of run time"]'::jsonb, 4.85, 1190),
-    ('disposals', 'kitchen', 'Garbage Disposals', 'PLUMBING & KITCHEN', 'Impeller de-jamming, watertight seal overhaul, splash guard renewal.', 'Rapid disposal restoration. We safely clear jammed grinding rings, repair undermount vibration leaks, and install heavy-duty multi-stage grind assemblies.', 79.00, '30-45 Mins', '90-Day Guarantee', 'QUICK FIX', '["InSinkErator", "Waste King", "Moen", "Kohler", "KitchenAid"]'::jsonb, '["Humming noise but blades won''t spin (jammed)", "Water leaking underneath kitchen sink cabinet", "Foul odor persists despite cleaning", "Disposal trips breaker or reset button immediately", "Drains very slowly or backs up into sink"]'::jsonb, 4.87, 1850),
-    ('ice-makers', 'specialty', 'Dedicated Ice Makers', 'SPECIALTY', 'Harvest cycle repair, water inlet valve, freeze plate descaling.', 'Undercounter gourmet and clear ice machine repair. Circulation pump replacement, evaporator grid scale cleanup, and thermostatic harvest timing adjustments.', 79.00, '45-75 Mins', '90-Day Guarantee', 'SPECIALTY', '["Scotsman", "Sub-Zero", "KitchenAid", "Hoshizaki", "U-Line", "Whirlpool"]'::jsonb, '["Making hollow, small, or no ice cubes", "Water continuously running into bin", "Ice cubes taste strange or look cloudy", "Unit stops cycling or red service light on", "Freezer plate frosted over with solid ice block"]'::jsonb, 4.93, 890),
-    ('wine-coolers', 'specialty', 'Wine Coolers & Cellars', 'SPECIALTY', 'Dual-zone cooling calibration, silent compressor dampening, humidity regulation.', 'Precision temperature and humidity preservation for high-end wine storage cabinets, multi-zone coolers, and custom residential cellar systems.', 79.00, '60-90 Mins', '90-Day Guarantee', 'LUXURY CARE', '["Sub-Zero", "EuroCave", "U-Line", "Thermador", "Marvel", "Liebherr"]'::jsonb, '["Zone temperature higher than thermostat setting", "Excessive vibration disturbing wine sediment", "Moisture or condensation on glass door", "Digital temperature display flashing warning", "Fan squealing or noisy air circulation"]'::jsonb, 4.97, 640)
-ON CONFLICT (id) DO NOTHING;
-
--- ==============================================================================
--- SEED DATA: TECHNICIANS
--- ==============================================================================
-INSERT INTO technicians (id, name, email, phone, title, rating, completed_jobs, active_jobs, vehicle, photo_url, status, specialties, eta_minutes)
-VALUES
-    ('c1111111-1111-1111-1111-111111111111', 'Marcus Vance', 'marcus.v@apexrepair.com', '(877) 225-2046 ext 412', 'Senior Master Appliance Specialist', 4.98, 1422, 2, 'Ford Transit Master Van #TX-482', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80', 'available', '["Refrigerators", "Wine Coolers", "Deep Freezers", "Sub-Zero Certified"]'::jsonb, 15),
-    ('c2222222-2222-2222-2222-222222222222', 'Elena Rostova', 'elena.r@apexrepair.com', '(877) 225-2046 ext 105', 'Certified Laundry Specialist', 4.96, 980, 1, 'Mercedes Sprinter Van #IL-204', 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80', 'on_job', '["Washing Machines", "Clothes Dryers", "Speed Queen Specialist"]'::jsonb, 25),
-    ('c3333333-3333-3333-3333-333333333333', 'David Miller', 'david.m@apexrepair.com', '(877) 225-2046 ext 218', 'Master Gas & Cooking Technician', 4.94, 1150, 2, 'RAM ProMaster Van #TX-509', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80', 'available', '["Ovens & Ranges", "Gas Igniters", "Microwaves", "Wolf Specialist"]'::jsonb, 10),
-    ('c4444444-4444-4444-4444-444444444444', 'Sarah Chen', 'sarah.c@apexrepair.com', '(877) 225-2046 ext 302', 'Kitchen Systems Lead Diagnostics', 4.97, 840, 1, 'Nissan NV2500 Van #IL-311', 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&w=300&q=80', 'on_job', '["Dishwashers", "Garbage Disposals", "Ice Makers", "Bosch Master"]'::jsonb, 35),
-    ('c5555555-5555-5555-5555-555555555555', 'Carlos Rodriguez', 'carlos.r@apexrepair.com', '(877) 225-2046 ext 114', 'Rapid Emergency Dispatcher & Tech', 4.92, 1310, 0, 'Chevy Express 2500 #TX-104', 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80', 'available', '["Same-Day Emergencies", "Electrical Systems", "Smart Appliances"]'::jsonb, 12)
-ON CONFLICT (id) DO NOTHING;
-
--- ==============================================================================
--- SEED DATA: CUSTOMERS
--- ==============================================================================
-INSERT INTO customers (id, name, email, phone, address, city, state, zip_code, total_bookings, lifetime_spend, status, notes)
-VALUES
-    ('a1111111-1111-1111-1111-111111111111', 'Saurabh Yadav', 'demo@apex.com', '(877) 225-2046', '742 Evergreen Terr, Suite 4B', 'Springfield', 'IL', '62704', 3, 580.00, 'vip', 'Preferred technician: Marcus Vance. High-end kitchen suite.'),
-    ('a2222222-2222-2222-2222-222222222222', 'Jennifer Lawrence', 'jennifer.l@gmail.com', '(312) 555-0142', '1240 N Lake Shore Dr, Apt 18A', 'Chicago', 'IL', '60610', 2, 420.00, 'active', 'Gate code #4492. Call 10 min prior to arrival.'),
-    ('a3333333-3333-3333-3333-333333333333', 'Robert Kensington', 'robert.k@kensingtonlaw.com', '(217) 555-8910', '4801 Prairie View Way', 'Springfield', 'IL', '62711', 4, 1140.00, 'vip', 'Sub-Zero built-in refrigerator and wine cellar maintenance contract.'),
-    ('a4444444-4444-4444-4444-444444444444', 'Amanda Miller', 'amanda.m@outlook.com', '(312) 555-7731', '892 W Armitage Ave', 'Chicago', 'IL', '60614', 1, 185.00, 'active', 'LG front load washer drain issue.'),
-    ('a5555555-5555-5555-5555-555555555555', 'Marcus Holloway', 'marcus.h@bloomfield.org', '(217) 555-3214', '1520 Lincoln Ave', 'Springfield', 'IL', '62702', 1, 79.00, 'active', 'Gas range clicking igniter issue.')
-ON CONFLICT (id) DO NOTHING;
-
--- ==============================================================================
--- SEED DATA: SERVICE REQUESTS / BOOKINGS
--- ==============================================================================
-INSERT INTO service_requests (id, booking_code, customer_id, customer_name, customer_email, customer_phone, address, appliance_id, appliance_name, brand, model_number, issue_description, is_emergency, preferred_date, preferred_time_slot, current_step, status, technician_id, technician_name, quote_amount, quote_status, diagnostic_fee, total_amount, payment_status, notes)
-VALUES
-    ('b1111111-1111-1111-1111-111111111111', 'AR-1024', 'a1111111-1111-1111-1111-111111111111', 'Saurabh Yadav', 'demo@apex.com', '(877) 225-2046', '742 Evergreen Terr, Suite 4B, Springfield, IL 62704', 'refrigerators', 'Refrigerator & Freezer', 'Samsung', 'RF28R7351SR French Door', 'Lower freezer compartment frost buildup & ice maker not cycling', true, CURRENT_DATE, '11:00 AM – 2:00 PM', 4, 'on_the_way', 'c1111111-1111-1111-1111-111111111111', 'Marcus Vance', 215.00, 'pending', 79.00, 294.00, 'unpaid', 'Emergency same-day priority dispatch. Technician en-route with replacement defrost heater and thermistor.'),
-    ('b2222222-2222-2222-2222-222222222222', 'AR-1025', 'a2222222-2222-2222-2222-222222222222', 'Jennifer Lawrence', 'jennifer.l@gmail.com', '(312) 555-0142', '1240 N Lake Shore Dr, Apt 18A, Chicago, IL 60610', 'dishwashers', 'Dishwashers', 'Bosch', '800 Series SHP878ZD5N', 'E15 error code water leak sensor triggered in bottom basin', false, CURRENT_DATE, '2:00 PM – 5:00 PM', 3, 'tech_assigned', 'c4444444-4444-4444-4444-444444444444', 'Sarah Chen', 165.00, 'pending', 79.00, 244.00, 'unpaid', 'Technician assigned for afternoon service window.'),
-    ('b3333333-3333-3333-3333-333333333333', 'AR-1026', 'a3333333-3333-3333-3333-333333333333', 'Robert Kensington', 'robert.k@kensingtonlaw.com', '(217) 555-8910', '4801 Prairie View Way, Springfield, IL 62711', 'wine-coolers', 'Wine Coolers & Cellars', 'Sub-Zero', 'UW-24 Built-In Undercounter', 'Upper zone temperature fluctuating between 58°F and 68°F', false, CURRENT_DATE + INTERVAL '1 day', '9:00 AM – 12:00 PM', 2, 'booking_confirmed', 'c1111111-1111-1111-1111-111111111111', 'Marcus Vance', 0.00, 'none', 79.00, 79.00, 'unpaid', 'Confirmed for tomorrow morning.'),
-    ('b4444444-4444-4444-4444-444444444444', 'AR-1020', 'a4444444-4444-4444-4444-444444444444', 'Amanda Miller', 'amanda.m@outlook.com', '(312) 555-7731', '892 W Armitage Ave, Chicago, IL 60614', 'washers', 'Washing Machines', 'LG', 'WM4000HBA Front Load', 'OE Drain Error code - standing water in drum', false, CURRENT_DATE - INTERVAL '2 days', '2:00 PM – 5:00 PM', 9, 'payment_done', 'c2222222-2222-2222-2222-222222222222', 'Elena Rostova', 145.00, 'approved', 79.00, 224.00, 'paid', 'Pump replaced and cycle verified. Payment collected via credit card.'),
-    ('b5555555-5555-5555-5555-555555555555', 'AR-1021', 'a5555555-5555-5555-5555-555555555555', 'Marcus Holloway', 'marcus.h@bloomfield.org', '(217) 555-3214', '1520 Lincoln Ave, Springfield, IL 62702', 'ovens-ranges', 'Ovens & Ranges', 'Wolf', 'GR366 Gas Range 36"', 'Front right burner igniter continuously clicking after burner is lit', false, CURRENT_DATE - INTERVAL '1 day', '10:00 AM – 1:00 PM', 8, 'completed', 'c3333333-3333-3333-3333-333333333333', 'David Miller', 120.00, 'approved', 79.00, 199.00, 'paid', 'Spark electrode module replaced. Gas safety inspection cleared.')
-ON CONFLICT (id) DO NOTHING;
-
--- ==============================================================================
--- SEED DATA: PAYMENTS
--- ==============================================================================
-INSERT INTO payments (id, invoice_number, booking_id, customer_name, customer_email, amount, payment_method, status, transaction_id, paid_at)
-VALUES
-    ('d1111111-1111-1111-1111-111111111111', 'INV-2026-0891', 'b4444444-4444-4444-4444-444444444444', 'Amanda Miller', 'amanda.m@outlook.com', 224.00, 'Credit Card', 'paid', 'TXN-849201', NOW() - INTERVAL '2 days'),
-    ('d2222222-2222-2222-2222-222222222222', 'INV-2026-0892', 'b5555555-5555-5555-5555-555555555555', 'Marcus Holloway', 'marcus.h@bloomfield.org', 199.00, 'Apple Pay', 'paid', 'TXN-912044', NOW() - INTERVAL '1 day'),
-    ('d3333333-3333-3333-3333-333333333333', 'INV-2026-0893', 'b1111111-1111-1111-1111-111111111111', 'Saurabh Yadav', 'demo@apex.com', 79.00, 'Credit Card', 'paid', 'TXN-382910', NOW() - INTERVAL '3 hours')
-ON CONFLICT (id) DO NOTHING;
-
--- ==============================================================================
--- SEED DATA: PROMOTIONS
--- ==============================================================================
-INSERT INTO promotions (id, code, title, description, discount_type, discount_value, min_spend, applicable_appliances, start_date, end_date, usage_limit, times_used, is_active)
-VALUES
-    ('e1111111-1111-1111-1111-111111111111', 'SPRING25', '$25 Off Precision Diagnostic', 'Enjoy $25 off diagnostic inspection when booking service this spring.', 'fixed', 25.00, 79.00, '["all"]'::jsonb, CURRENT_DATE - INTERVAL '10 days', CURRENT_DATE + INTERVAL '60 days', 500, 78, true),
-    ('e2222222-2222-2222-2222-222222222222', 'KITCHEN15', '15% Off Kitchen Appliance Repairs', 'Valid on Dishwashers, Ovens, Ranges and Refrigerators.', 'percentage', 15.00, 150.00, '["refrigerators", "dishwashers", "ovens-ranges"]'::jsonb, CURRENT_DATE - INTERVAL '5 days', CURRENT_DATE + INTERVAL '45 days', 250, 42, true),
-    ('e3333333-3333-3333-3333-333333333333', 'EMERGENCY10', '$10 Off Urgent Weekend Surcharge', 'Discount on emergency same-day dispatch fee.', 'fixed', 10.00, 49.00, '["all"]'::jsonb, CURRENT_DATE - INTERVAL '1 month', CURRENT_DATE + INTERVAL '90 days', 200, 93, true)
-ON CONFLICT (id) DO NOTHING;
-
--- ==============================================================================
--- SEED DATA: REVIEWS
--- ==============================================================================
-INSERT INTO reviews (id, booking_id, customer_name, customer_email, appliance_name, rating, comment, technician_name, is_verified, is_published, review_date)
-VALUES
-    ('f1111111-1111-1111-1111-111111111111', 'b4444444-4444-4444-4444-444444444444', 'Amanda Miller', 'amanda.m@outlook.com', 'Washing Machines', 5, 'Elena was incredible! She diagnosed the drain pump issue within 10 minutes and had the replacement OEM part right in her van. Zero mess left behind.', 'Elena Rostova', true, true, CURRENT_DATE - INTERVAL '2 days'),
-    ('f2222222-2222-2222-2222-222222222222', 'b5555555-5555-5555-5555-555555555555', 'Marcus Holloway', 'marcus.h@bloomfield.org', 'Ovens & Ranges', 5, 'David repaired our Wolf range perfectly. Very knowledgeable technician who tested all gas connections thoroughly. Highly recommended!', 'David Miller', true, true, CURRENT_DATE - INTERVAL '1 day'),
-    ('f3333333-3333-3333-3333-333333333333', 'b1111111-1111-1111-1111-111111111111', 'Saurabh Yadav', 'demo@apex.com', 'Refrigerator & Freezer', 5, 'Outstanding service from Marcus. Live tracking showed his exact arrival time and he fixed our Samsung french door cooling issue on the spot.', 'Marcus Vance', true, true, CURRENT_DATE)
-ON CONFLICT (id) DO NOTHING;
-
--- ==============================================================================
--- SEED DATA: NOTIFICATIONS
--- ==============================================================================
-INSERT INTO notifications (id, type, title, message, link, is_read)
-VALUES
-    ('g1111111-1111-1111-1111-111111111111', 'emergency', 'Urgent Dispatch Alert: AR-1024', 'Marcus Vance is en-route for Samsung French Door refrigerator repair. ETA 15 mins.', '/bookings', false),
-    ('g2222222-2222-2222-2222-222222222222', 'quote', 'Quote Approval Pending: AR-1025', 'Bosch Dishwasher quote for $244.00 submitted for Jennifer Lawrence.', '/bookings', false),
-    ('g3333333-3333-3333-3333-333333333333', 'payment', 'Payment Cleared: INV-2026-0891', '$224.00 received from Amanda Miller for Washer Drain Pump replacement.', '/payments', true),
-    ('g4444444-4444-4444-4444-444444444444', 'technician', 'Daily Route Scheduled: Sarah Chen', '4 diagnostic visits assigned in Chicago North Shore corridor.', '/technicians', false)
-ON CONFLICT (id) DO NOTHING;

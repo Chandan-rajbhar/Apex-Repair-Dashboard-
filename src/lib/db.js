@@ -31,19 +31,23 @@ const setLocal = (key, data) => {
   }
 };
 
-// Initialize local seed if not present
+// Initialize local storage only if Supabase is not configured
 const initLocalStorage = () => {
   if (typeof window === "undefined") return;
+  if (isSupabaseConfigured()) {
+    // Zero static seed data when connected to Supabase
+    return;
+  }
   if (!localStorage.getItem("apex_db_initialized")) {
     setLocal("services", SERVICES);
     setLocal("categories", APPLIANCE_CATEGORIES);
-    setLocal("technicians", TECHNICIANS);
-    setLocal("customers", CUSTOMERS);
-    setLocal("bookings", SERVICE_REQUESTS);
-    setLocal("payments", PAYMENTS);
-    setLocal("promotions", PROMOTIONS);
-    setLocal("reviews", REVIEWS);
-    setLocal("notifications", NOTIFICATIONS);
+    setLocal("technicians", []);
+    setLocal("customers", []);
+    setLocal("bookings", []);
+    setLocal("payments", []);
+    setLocal("promotions", []);
+    setLocal("reviews", []);
+    setLocal("notifications", []);
     setLocal("pricing", PRICING_LIST);
     localStorage.setItem("apex_db_initialized", "true");
   }
@@ -60,7 +64,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("services").select("*").order("rating", { ascending: false });
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase fetch services failed, using local db:", e);
       }
@@ -129,7 +133,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("appliance_categories").select("*").order("display_order");
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase categories query failed:", e);
       }
@@ -196,7 +200,7 @@ export const db = {
           .from("service_requests")
           .select("*")
           .order("created_at", { ascending: false });
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase bookings fetch failed, using local db:", e);
       }
@@ -298,7 +302,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("customers").select("*").order("created_at", { ascending: false });
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase getCustomers failed:", e);
       }
@@ -363,7 +367,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("technicians").select("*").order("rating", { ascending: false });
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase getTechnicians failed:", e);
       }
@@ -431,7 +435,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("pricing").select("*");
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase getPricing failed:", e);
       }
@@ -478,7 +482,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("payments").select("*").order("created_at", { ascending: false });
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase getPayments failed:", e);
       }
@@ -529,7 +533,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("promotions").select("*");
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase getPromotions failed:", e);
       }
@@ -593,7 +597,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("reviews").select("*").order("created_at", { ascending: false });
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase getReviews failed:", e);
       }
@@ -658,7 +662,7 @@ export const db = {
     if (isSupabaseConfigured()) {
       try {
         const { data, error } = await supabase.from("notifications").select("*").order("created_at", { ascending: false });
-        if (!error && data && data.length > 0) return data;
+        if (!error && data) return data;
       } catch (e) {
         console.warn("Supabase getNotifications failed:", e);
       }

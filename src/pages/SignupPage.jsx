@@ -58,13 +58,15 @@ export function SignupPage() {
     const res = await signup({
       name: formData.name,
       email: formData.email,
-      role: "Administrator",
-      phone: "",
       password: formData.password,
     });
 
     if (res.success) {
-      navigate("/", { replace: true });
+      if (res.autoLogin) {
+        navigate("/", { replace: true });
+      } else {
+        navigate("/login", { replace: true, state: { email: formData.email } });
+      }
     }
   };
 
@@ -152,9 +154,9 @@ export function SignupPage() {
           />
         </div>
 
-        {/* Top Header / Return Button for Desktop & Mobile Brand */}
-        <div className="flex items-center justify-between w-full max-w-md mx-auto mb-4">
-          <div className="lg:hidden flex items-center gap-2.5">
+        {/* Mobile Header Brand (< lg) */}
+        <div className="lg:hidden flex items-center justify-between w-full max-w-md mx-auto mb-4">
+          <div className="flex items-center gap-2.5">
             <div className="h-8 w-8 rounded-lg bg-[#1E7B5A] flex items-center justify-center text-white shadow-sm">
               <svg className="w-4 h-4" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="50" cy="50" r="46" fill="#1E7B5A" />
@@ -163,13 +165,6 @@ export function SignupPage() {
             </div>
             <span className="font-extrabold text-sm tracking-tight text-[#16264a]">APEX REPAIR</span>
           </div>
-          <Link
-            to="/login"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#223f6b] transition-colors ml-auto"
-          >
-            <span>Back to Login</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
         </div>
 
         {/* Center Registration Card */}

@@ -28,8 +28,8 @@ export function LoginPage() {
   const location = useLocation();
   const { login, isLoading } = useAuth();
 
-  const [email, setEmail] = useState("admin@apexrepair.com");
-  const [password, setPassword] = useState("••••••••••••");
+  const [email, setEmail] = useState(location.state?.email || "");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
 
@@ -158,9 +158,9 @@ export function LoginPage() {
           />
         </div>
 
-        {/* Top Header / Return Button for Desktop & Mobile Brand */}
-        <div className="flex items-center justify-between w-full max-w-md mx-auto mb-4">
-          <div className="lg:hidden flex items-center gap-2.5">
+        {/* Mobile Header Brand (< lg) */}
+        <div className="lg:hidden flex items-center justify-between w-full max-w-md mx-auto mb-4">
+          <div className="flex items-center gap-2.5">
             <div className="h-8 w-8 rounded-lg bg-[#1E7B5A] flex items-center justify-center text-white shadow-sm">
               <svg className="w-4 h-4" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="50" cy="50" r="46" fill="#1E7B5A" />
@@ -169,13 +169,6 @@ export function LoginPage() {
             </div>
             <span className="font-extrabold text-sm tracking-tight text-[#16264a]">APEX REPAIR</span>
           </div>
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-[#223f6b] transition-colors ml-auto"
-          >
-            <span>Dashboard</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
         </div>
 
         {/* Center Auth Card */}

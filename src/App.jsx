@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider } from "./context/AuthContext";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { AdminLayout } from "./components/layout/AdminLayout";
 import { DashboardOverview } from "./pages/DashboardOverview";
 import { ServicesPage } from "./pages/ServicesPage";
@@ -19,6 +20,7 @@ import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SignupPage } from "./pages/SignupPage";
+import { UnauthorizedPage } from "./pages/UnauthorizedPage";
 
 export default function App() {
   return (
@@ -36,12 +38,20 @@ export default function App() {
           }}
         />
         <Routes>
-          {/* Public Authentication Pages */}
+          {/* Public Authentication & Authorization Gate Pages */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
-          {/* Admin Dashboard Pages */}
-          <Route path="/" element={<AdminLayout />}>
+          {/* Protected Super Admin Dashboard Routes */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <AdminLayout />
+              </ProtectedRoute>
+            }
+          >
             <Route index element={<DashboardOverview />} />
             <Route path="services" element={<ServicesPage />} />
             <Route path="bookings" element={<BookingsPage />} />
@@ -56,11 +66,12 @@ export default function App() {
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
+
+          {/* Catch-all redirect */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
   );
 }
-
