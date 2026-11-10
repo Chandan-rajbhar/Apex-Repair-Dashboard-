@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 33% 98%;
+    --foreground: 222 54% 19%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 54% 19%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 54% 19%;
+
+    --primary: 222 54% 28%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 215 35% 93%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 215 30% 93%;
+    --muted-foreground: 217 24% 42%;
+
+    --accent: 215 40% 92%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 218 30% 91%;
+    --input: 218 30% 91%;
+    --ring: 222 54% 35%;
+
+    --radius: 0.75rem;
+
+    /* Apex Theme Direct Color Variables */
+    --navy-950: #0e1a36;
+    --navy-900: #16264a;
+    --navy-800: #223f6b;
+    --navy-700: #2f5082;
+    --navy-600: #3c5f94;
+    --navy-100: #e6edf8;
+    --navy-50: #f1f5fb;
+    --apex-green: #1E7B5A;
+    --apex-emerald: #1fa971;
+    --apex-amber: #ffb547;
+    --apex-danger: #d93a3a;
+  }
+
+  .dark {
+    --background: 224 45% 8%;
+    --foreground: 210 40% 98%;
+
+    --card: 224 40% 11%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 224 40% 11%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 220 30% 18%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 30% 18%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 220 30% 18%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 30% 20%;
+    --input: 220 30% 20%;
+    --ring: 216 34% 17%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Smooth Drawer Animations */
+.drawer-backdrop {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.slide-in-right-custom {
+  animation: slideInRight 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
