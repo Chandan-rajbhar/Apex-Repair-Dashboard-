@@ -1,0 +1,4 @@
+# Place public static images here.
+# Files in this directory can be referenced directly in code via:
+# <img src="/images/your-image.png" alt="..." />
+

@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuth } from "@/context/AuthContext";
 
 export function Header({
   onOpenMobileNav,
@@ -28,8 +29,14 @@ export function Header({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const handleSignOut = async () => {
+    await logout();
+    navigate("/login");
+  };
 
   // Breadcrumb mapping
   const pathMap = {
@@ -142,20 +149,23 @@ export function Header({
               className="flex items-center gap-2 p-1 pl-2 h-9 rounded-full hover:bg-slate-100"
             >
               <Avatar className="h-7 w-7 ring-1 ring-slate-200">
-                <AvatarImage src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80" />
-                <AvatarFallback>AD</AvatarFallback>
+                <AvatarImage src={user?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"} />
+                <AvatarFallback>{user?.name ? user.name.slice(0, 2).toUpperCase() : "AD"}</AvatarFallback>
               </Avatar>
               <span className="text-xs font-bold text-slate-700 hidden lg:inline">
-                Admin
+                {user?.name?.split(" ")[0] || "Admin"}
               </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 bg-white p-1">
             <DropdownMenuLabel className="p-2">
-              <p className="text-xs font-bold text-[#16264a]">Admin Console</p>
+              <p className="text-xs font-bold text-[#16264a]">{user?.name || "Admin Dispatcher"}</p>
               <p className="text-[11px] font-normal text-slate-400">
-                admin@apexrepair.com
+                {user?.email || "admin@apexrepair.com"}
               </p>
+              <span className="inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-[#1E7B5A]">
+                {user?.role || "Administrator"}
+              </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -181,12 +191,10 @@ export function Header({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => {
-                navigate("/settings");
-              }}
-              className="gap-2 cursor-pointer text-xs text-slate-600"
+              onClick={handleSignOut}
+              className="gap-2 cursor-pointer text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50"
             >
-              <LogOut className="h-3.5 w-3.5 text-slate-400" />
+              <LogOut className="h-3.5 w-3.5 text-rose-500" />
               Sign Out
             </DropdownMenuItem>
           </DropdownMenuContent>

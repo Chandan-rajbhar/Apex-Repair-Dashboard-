@@ -1,5 +1,5 @@
 import React from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Wrench,
@@ -24,9 +24,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuth } from "@/context/AuthContext";
 
 export function Sidebar({ isCollapsed, onToggleCollapse, emergencyCount = 0, unreadCount = 0 }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const handleSignOut = async () => {
+    await logout();
+    navigate("/login");
+  };
 
   const navGroups = [
     {
@@ -213,20 +221,32 @@ export function Sidebar({ isCollapsed, onToggleCollapse, emergencyCount = 0, unr
         >
           <div className="flex items-center gap-2.5 overflow-hidden">
             <Avatar className="h-8 w-8 ring-1 ring-slate-200">
-              <AvatarImage src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80" />
-              <AvatarFallback>AD</AvatarFallback>
+              <AvatarImage src={user?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"} />
+              <AvatarFallback>{user?.name ? user.name.slice(0, 2).toUpperCase() : "AD"}</AvatarFallback>
             </Avatar>
             {!isCollapsed && (
               <div className="flex flex-col min-w-0">
                 <span className="text-xs font-bold text-[#16264a] truncate">
-                  Admin Dispatcher
+                  {user?.name || "Admin Dispatcher"}
                 </span>
                 <span className="text-[10px] text-slate-400 truncate">
-                  admin@apexrepair.com
+                  {user?.email || "admin@apexrepair.com"}
                 </span>
               </div>
             )}
           </div>
+
+          {!isCollapsed && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleSignOut}
+              className="h-7 w-7 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+              title="Sign Out"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     </aside>
